@@ -266,11 +266,6 @@ class ASR(sb.core.Brain):
                 + self.mix_previous_weight * feats[current_batch_size:]
             )
 
-            # init feats adv noise
-            feats_delta = torch.zeros_like(feats)
-            feats_delta.requires_grad_()
-            feats = feats + feats_delta
-
             # ***Forward ASR Model***
             (
                 ctc_prob, 
@@ -312,27 +307,14 @@ class ASR(sb.core.Brain):
                 (1-self.mix_previous_weight) * current_asr_loss
                 + self.mix_previous_weight * previous_asr_loss
             )
-            (loss / self.hparams.gradient_accumulation).backward(retain_graph=True)
-
-            # ***Update Noise***
-            # update and clip for wav delta
-            feats_delta_grad = feats_delta.grad.clone().detach().float()
-            denorm = torch.norm(feats_delta_grad.view(feats_delta_grad.size(0), -1), dim=1).view(-1, 1, 1)
-            denorm = torch.clamp(denorm, min=1e-8)
-            feats_delta_step = (feats_delta_grad / denorm).to(feats_delta)
-
-            # Rescale Feats Delta Step to 0.01~0.001
-            feats_delta_step = self.auto_scale(
-                x=feats_delta_step,
-                min_v=self.hparams.adv_spec_min,
-                max_v=self.hparams.adv_spec_max
-            )
-            feats_delta = (feats_delta + feats_delta_step).detach()
-
-            # add new adv noise to feats
-            feats = (feats + feats_delta).detach()
+            (loss / self.hparams.gradient_accumulation).backward()
         else:
             # 只跑 Clean
+            # init feats adv noise
+            feats_delta = torch.zeros_like(feats)
+            feats_delta.requires_grad_()
+            feats = feats + feats_delta
+
             # ***Forward ASR Model***
             ctc_prob, ctc_logprob, seq_prob_current, seq_logprob_current = self.forward_asr_model(
                 feats=feats,
@@ -351,6 +333,24 @@ class ASR(sb.core.Brain):
                 wav_lens=wav_lens
             )
             (loss / self.hparams.gradient_accumulation).backward()
+
+            # ***Update Noise***
+            # update and clip for wav delta
+            feats_delta_grad = feats_delta.grad.clone().detach().float()
+            denorm = torch.norm(feats_delta_grad.view(feats_delta_grad.size(0), -1), dim=1).view(-1, 1, 1)
+            denorm = torch.clamp(denorm, min=1e-8)
+            feats_delta_step = (feats_delta_grad / denorm).to(feats_delta)
+
+            # Rescale Feats Delta Step to 0.01~0.001
+            feats_delta_step = self.auto_scale(
+                x=feats_delta_step,
+                min_v=self.hparams.adv_spec_min,
+                max_v=self.hparams.adv_spec_max
+            )
+            feats_delta = (feats_delta + feats_delta_step).detach()
+
+            # add new adv noise to feats
+            feats = (feats + feats_delta).detach()
 
         return loss, feats, wav_lens
 
@@ -388,12 +388,9 @@ class ASR(sb.core.Brain):
         # 決定這個 Batch 的 mix_previous_weight
         self.mix_previous_weight = torch.rand(1).item() * self.hparams.max_mix_previous_weight
 
-        # 如果當前的 Batch Size 跟上一個 Batch 的 Batch Size 一樣，並且偶數 Step 才可以做 Mixspeech & ADV
+        # 如果當前的 Batch Size 跟上一個 Batch 的 Batch Size 一樣才可以做 Mixspeech & ADV
         if current_batch_size == self.previous_batch_data['batch_size']:
             self.mix_stage = True
-            
-            if self.step % 3 == 0:
-                self.mix_stage = False
         else:
             self.mix_stage = False
 

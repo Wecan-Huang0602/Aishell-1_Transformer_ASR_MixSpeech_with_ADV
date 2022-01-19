@@ -6,7 +6,6 @@ import speechbrain as sb
 from speechbrain.utils.distributed import run_on_main
 from hyperpyyaml import load_hyperpyyaml
 from prepare import prepare_aishell
-from pprint import pprint
 import pandas as pd
 import json
 import os
@@ -247,6 +246,8 @@ class ASR(sb.core.Brain):
         current_batch_size = feats.size(0)
 
         if self.mix_stage:
+            # print('Mix')
+            
             # ***Mix Current &  Previous Batch Data***
             wav_lens = torch.max(
                 wav_lens*feats.size(1),
@@ -309,6 +310,8 @@ class ASR(sb.core.Brain):
             )
             (loss / self.hparams.gradient_accumulation).backward()
         else:
+            # print('Clean')
+
             # 只跑 Clean
             # init feats adv noise
             feats_delta = torch.zeros_like(feats)
@@ -388,8 +391,11 @@ class ASR(sb.core.Brain):
         # 決定這個 Batch 的 mix_previous_weight
         self.mix_previous_weight = torch.rand(1).item() * self.hparams.max_mix_previous_weight
 
-        # 如果當前的 Batch Size 跟上一個 Batch 的 Batch Size 一樣才可以做 Mixspeech & ADV
-        if current_batch_size == self.previous_batch_data['batch_size']:
+        '''
+        如果當前的 Batch Size 跟上一個 Batch 的 Batch Size 一樣，
+        並且上個 Stage 不是 Mix-Stage，才可以做 Mixspeech & ADV
+        '''
+        if (current_batch_size == self.previous_batch_data['batch_size']) and (not self.mix_stage):
             self.mix_stage = True
         else:
             self.mix_stage = False

@@ -1,4 +1,4 @@
 __pycache__
 .ipynb_checkpoints
 .vscode
-results_MixSpeech_ADV/
+results_*/

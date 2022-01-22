@@ -8,7 +8,7 @@
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 8886
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
-output_folder: results_MixSpeech_ADV/transformer_base_0.5_Clean_MixSpeech-With-ADV 
+output_folder: results_MixSpeech_ADV/transformer_base_0.5_Clean_MixSpeech-With-ADV_KL
 cer_file: !ref <output_folder>/cer.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt

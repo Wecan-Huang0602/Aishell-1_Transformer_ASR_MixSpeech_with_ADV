@@ -304,9 +304,40 @@ class ASR(sb.core.Brain):
                 tokens_eos_lens=self.previous_batch_data['tokens_eos_lens'],
                 wav_lens=wav_lens
             )
+
+            # Compute Current-Previous KL-Loss 
+            ctc_logprob_pad = pad_sequence(
+                [
+                    *ctc_logprob,
+                    *self.previous_batch_data['ctc_logprob']
+                ],
+                batch_first=True
+            )
+            ctc_prob_pad = pad_sequence(
+                [
+                    *ctc_prob,
+                    *self.previous_batch_data['ctc_prob']
+                ],
+                batch_first=True
+            )
+
+            ctc_kl_loss = (
+                self.hparams.kl_div(ctc_logprob_pad[:current_batch_size], ctc_prob_pad[current_batch_size:])
+                + self.hparams.kl_div(ctc_logprob_pad[current_batch_size:], ctc_prob_pad[:current_batch_size])
+            )
+            seq_kl_loss = (
+                self.hparams.kl_div(seq_logprob_previous, self.previous_batch_data['seq_prob'])
+                + self.hparams.kl_div(self.previous_batch_data['seq_logprob'], seq_prob_previous)
+            )
+            kl_loss = (
+                self.hparams.ctc_weight * ctc_kl_loss
+                + (1-self.hparams.ctc_weight) * seq_kl_loss
+            )
+
+            # Combine all Loss 
             loss = (
                 (1-self.mix_previous_weight) * current_asr_loss
-                + self.mix_previous_weight * previous_asr_loss
+                + self.mix_previous_weight * (previous_asr_loss + (self.hparams.adv_kl_weight*kl_loss))
             )
             (loss / self.hparams.gradient_accumulation).backward()
         else:
@@ -335,7 +366,7 @@ class ASR(sb.core.Brain):
                 tokens_eos_lens=tokens_eos_lens,
                 wav_lens=wav_lens
             )
-            (loss / self.hparams.gradient_accumulation).backward()
+            (loss / self.hparams.gradient_accumulation).backward(retain_graph=True)
 
             # ***Update Noise***
             # update and clip for wav delta
@@ -355,7 +386,15 @@ class ASR(sb.core.Brain):
             # add new adv noise to feats
             feats = (feats + feats_delta).detach()
 
-        return loss, feats, wav_lens
+        return (
+            loss,
+            feats,
+            wav_lens,
+            ctc_prob, 
+            ctc_logprob, 
+            seq_prob_current, 
+            seq_logprob_current
+        )
 
     def scale_value(self, x, min_v, max_v):
         x_max = x.max()
@@ -401,7 +440,16 @@ class ASR(sb.core.Brain):
             self.mix_stage = False
 
         # Run ASR and Noise Stage
-        loss, feats, wav_lens = self.run_mixspeech(
+        (
+            loss,
+            feats,
+            wav_lens,
+            ctc_prob, 
+            ctc_logprob, 
+            seq_prob, 
+            seq_logprob
+
+        ) = self.run_mixspeech(
             feats=batch_data['feats'],
             tokens=batch_data['tokens'],
             tokens_bos=batch_data['tokens_bos'],
@@ -416,6 +464,10 @@ class ASR(sb.core.Brain):
         self.previous_batch_data['batch_size'] = current_batch_size
         self.previous_batch_data['feats'] = feats
         self.previous_batch_data['wav_lens'] = wav_lens
+        self.previous_batch_data['ctc_prob'] = ctc_prob
+        self.previous_batch_data['ctc_logprob'] = ctc_logprob
+        self.previous_batch_data['seq_prob'] = seq_prob
+        self.previous_batch_data['seq_logprob'] = seq_logprob
 
         if self.step % self.hparams.gradient_accumulation == 0:
             # gradient clipping & early stop if loss is not fini

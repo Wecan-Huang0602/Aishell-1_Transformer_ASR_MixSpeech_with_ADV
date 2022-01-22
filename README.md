@@ -17,9 +17,11 @@
 ---
 
 ## MixSpeech with ADV Methods
-| MixSpeech with ADV                                        | Dev CER | Test CER |
-| :-----:                                                   | :----:  | :----:   |
-| Accumulation (Max 𝜆=0.5)                                  | 5.81    | 6.37     |
-| 1:Clean -> 2: MixSpeech -> MixSpeech with ADV (Max 𝜆=0.5) | 5.63    | 6.15     |
+| MixSpeech with ADV                                           | Dev CER | Test CER |
+| :-----:                                                      | :----:  | :----:   |
+| Accumulation (Max 𝜆=0.5)                                     | 5.81    | 6.37     |
+| 1:Clean -> 2: MixSpeech -> 3: MixSpeech with ADV (Max 𝜆=0.5) | 5.63    | 6.15     |
+| 1:Clean -> 2: MixSpeech with ADV (Max 𝜆=0.5)                 | 5.51    | 6.15     |
+| 1:Clean -> 2: MixSpeech with ADV (Beta-Distribution 𝜆)       | 5.73    | 6.42     |
 ---
 
